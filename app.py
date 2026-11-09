@@ -8,13 +8,6 @@ import pandas as pd
 import folium
 import requests
 
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from geopy.exc import (
-    GeocoderTimedOut,
-    GeocoderUnavailable,
-    GeocoderRateLimited
-    )
 from streamlit_folium import st_folium
 
 # ==========================================
@@ -45,21 +38,6 @@ base_df = load_base_data()
 # 3. SEARCH LOCATION
 # ==========================================
 
-@st.cache_resource
-def get_geocoder():
-
-    geolocator = Nominatim(
-        user_agent="solarland_finder_perkasa_assessment"
-    )
-
-    return RateLimiter(
-        geolocator.geocode,
-        min_delay_seconds=1.2,
-        max_retries=0,
-        swallow_exceptions=False
-    )
-
-
 @st.cache_data(ttl=86400)
 def geocode_location(query):
 
@@ -68,23 +46,76 @@ def geocode_location(query):
     if clean_query.upper().startswith("PMU "):
         clean_query = clean_query[4:].strip()
 
-    if "Malaysia" not in clean_query:
+    if "malaysia" not in clean_query.lower():
         clean_query += ", Malaysia"
 
-    geocode = get_geocoder()
+    url = "https://photon.komoot.io/api/"
 
-    result = geocode(
-        clean_query,
-        timeout=15,
-        country_codes="my"
+    params = {
+        "q": clean_query,
+        "limit": 5,
+        "lang": "en"
+    }
+
+    response = requests.get(
+        url,
+        params=params,
+        timeout=15
     )
 
-    if result:
+    response.raise_for_status()
+
+    data = response.json()
+    features = data.get("features", [])
+
+    for feature in features:
+
+        properties = feature.get("properties", {})
+
+        country_code = str(
+            properties.get("countrycode", "")
+        ).lower()
+
+        country = str(
+            properties.get("country", "")
+        ).lower()
+
+        if country_code and country_code != "my":
+            continue
+
+        if country and "malaysia" not in country:
+            continue
+
+        coordinates = feature.get(
+            "geometry", {}
+        ).get("coordinates", [])
+
+        if len(coordinates) < 2:
+            continue
+
+        longitude = float(coordinates[0])
+        latitude = float(coordinates[1])
+
+        location_parts = [
+            properties.get("name"),
+            properties.get("city"),
+            properties.get("district"),
+            properties.get("state"),
+            properties.get("country")
+        ]
+
+        location_parts = list(dict.fromkeys(
+            str(part).strip()
+            for part in location_parts
+            if part
+        ))
+
+        address = ", ".join(location_parts)
 
         return {
-            "address": result.address,
-            "latitude": float(result.latitude),
-            "longitude": float(result.longitude)
+            "address": address or clean_query,
+            "latitude": latitude,
+            "longitude": longitude
         }
 
     return None
@@ -367,7 +398,9 @@ if search_clicked:
             if found:
 
                 st.session_state["target_name"] = found["address"]
+
                 st.session_state["target_lat"] = found["latitude"]
+
                 st.session_state["target_lon"] = found["longitude"]
 
                 st.sidebar.success("Location found!")
@@ -375,34 +408,18 @@ if search_clicked:
             else:
 
                 st.sidebar.warning(
-                    "Location not found. Please check your location name."
+                    "Location not found. Please try again."
                 )
 
-        except GeocoderRateLimited:
+        except requests.RequestException:
 
             st.sidebar.error(
-                "OpenStreetMap is temporarily limiting location searches "
-                "(Error 429). Please wait before trying again."
-            )
-
-        except GeocoderTimedOut:
-
-            st.sidebar.error(
-                "Location search timed out. Please try again later."
-            )
-
-        except GeocoderUnavailable:
-
-            st.sidebar.error(
-                "Location service is currently unavailable. Please try again later."
+                "Photon location service is unavailable. Please try again later."
             )
 
         except Exception as error:
 
-            st.sidebar.error(
-                f"An unexpected error occurred: {error}"
-            )
-
+            st.sidebar.error(f"Search error: {error}")
 
 # ==========================================
 # 9. SEARCH RESULTS
