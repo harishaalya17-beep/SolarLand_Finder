@@ -379,11 +379,16 @@ if search_clicked:
                     "Location not found. Please try again."
                 )
 
-        except (GeocoderTimedOut, GeocoderUnavailable):
-
+        except GeocoderQuotaExceeded:
             st.sidebar.error(
-                "Location service unavailable. Try again later."
-            )
+                    "OpenStreetMap is temporarily limiting location searches. "
+                    "Please wait before trying again."
+                )
+
+        except (GeocoderTimedOut, GeocoderUnavailable):
+            st.sidebar.error(
+                    "Location service unavailable. Try again later."
+                )
 
         except Exception as error:
 
