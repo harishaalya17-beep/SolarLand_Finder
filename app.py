@@ -13,10 +13,9 @@ from geopy.extra.rate_limiter import RateLimiter
 from geopy.exc import (
     GeocoderTimedOut,
     GeocoderUnavailable,
-    GeocoderQuotaExceeded
-)
+    GeocoderRateLimited
+    )
 from streamlit_folium import st_folium
-
 
 # ==========================================
 # 1. PAGE CONFIGURATION
@@ -56,8 +55,8 @@ def get_geocoder():
     return RateLimiter(
         geolocator.geocode,
         min_delay_seconds=1.2,
-        max_retries=1,
-        error_wait_seconds=5
+        max_retries=0,
+        swallow_exceptions=False
     )
 
 
@@ -81,6 +80,7 @@ def geocode_location(query):
     )
 
     if result:
+
         return {
             "address": result.address,
             "latitude": float(result.latitude),
@@ -350,7 +350,6 @@ search_clicked = st.sidebar.button(
     use_container_width=True
 )
 
-
 if search_clicked:
 
     if not target_input or not target_input.strip():
@@ -376,23 +375,33 @@ if search_clicked:
             else:
 
                 st.sidebar.warning(
-                    "Location not found. Please try again."
+                    "Location not found. Please check your location name."
                 )
 
-        except GeocoderQuotaExceeded:
-            st.sidebar.error(
-                    "OpenStreetMap is temporarily limiting location searches. "
-                    "Please wait before trying again."
-                )
+        except GeocoderRateLimited:
 
-        except (GeocoderTimedOut, GeocoderUnavailable):
             st.sidebar.error(
-                    "Location service unavailable. Try again later."
-                )
+                "OpenStreetMap is temporarily limiting location searches "
+                "(Error 429). Please wait before trying again."
+            )
+
+        except GeocoderTimedOut:
+
+            st.sidebar.error(
+                "Location search timed out. Please try again later."
+            )
+
+        except GeocoderUnavailable:
+
+            st.sidebar.error(
+                "Location service is currently unavailable. Please try again later."
+            )
 
         except Exception as error:
 
-            st.sidebar.error(f"Error: {error}")
+            st.sidebar.error(
+                f"An unexpected error occurred: {error}"
+            )
 
 
 # ==========================================
