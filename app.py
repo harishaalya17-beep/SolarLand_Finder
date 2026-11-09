@@ -1,4 +1,3 @@
-
 import math
 import hashlib
 from io import BytesIO
@@ -10,7 +9,12 @@ import folium
 import requests
 
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+from geopy.extra.rate_limiter import RateLimiter
+from geopy.exc import (
+    GeocoderTimedOut,
+    GeocoderUnavailable,
+    GeocoderQuotaExceeded
+)
 from streamlit_folium import st_folium
 
 
@@ -38,38 +42,52 @@ def load_base_data():
 
 base_df = load_base_data()
 
-
 # ==========================================
 # 3. SEARCH LOCATION
 # ==========================================
 
-def geocode_location(query):
+@st.cache_resource
+def get_geocoder():
 
     geolocator = Nominatim(
-        user_agent="solarland_finder_prototype"
+        user_agent="solarland_finder_perkasa_assessment"
     )
 
-    queries = [query.strip()]
+    return RateLimiter(
+        geolocator.geocode,
+        min_delay_seconds=1.2,
+        max_retries=1,
+        error_wait_seconds=5
+    )
 
-    if "Malaysia" not in query:
-        queries.append(query + ", Malaysia")
 
-    if query.upper().startswith("PMU "):
-        queries.append(query[4:] + ", Malaysia")
+@st.cache_data(ttl=86400)
+def geocode_location(query):
 
-    for item in dict.fromkeys(queries):
+    clean_query = query.strip()
 
-        result = geolocator.geocode(
-            item,
-            timeout=15,
-            country_codes="my"
-        )
+    if clean_query.upper().startswith("PMU "):
+        clean_query = clean_query[4:].strip()
 
-        if result:
-            return result
+    if "Malaysia" not in clean_query:
+        clean_query += ", Malaysia"
+
+    geocode = get_geocoder()
+
+    result = geocode(
+        clean_query,
+        timeout=15,
+        country_codes="my"
+    )
+
+    if result:
+        return {
+            "address": result.address,
+            "latitude": float(result.latitude),
+            "longitude": float(result.longitude)
+        }
 
     return None
-
 
 # ==========================================
 # 4. CALCULATE STRAIGHT-LINE DISTANCE
@@ -224,7 +242,6 @@ def make_demo_parcels(source_df, center_lat, center_lon, location_name):
     return result
 
 
-
 # ==========================================
 # LAND CLASSIFICATION
 # ==========================================
@@ -350,9 +367,9 @@ if search_clicked:
 
             if found:
 
-                st.session_state["target_name"] = found.address
-                st.session_state["target_lat"] = float(found.latitude)
-                st.session_state["target_lon"] = float(found.longitude)
+                st.session_state["target_name"] = found["address"]
+                st.session_state["target_lat"] = found["latitude"]
+                st.session_state["target_lon"] = found["longitude"]
 
                 st.sidebar.success("Location found!")
 
